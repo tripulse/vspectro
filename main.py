@@ -7,32 +7,25 @@ import configparser
 import Visualise
 from constants import *
 from chalk import red, green
+from yaml import load, CLoader
 
+# Parses the configuration file corresponding to this program.
+# And uses properties of it in several aspects of it.
+_configs = yaml.loads("configs/general.yml", Loader=CLoader)
 
-# Read the configuration file. Which defines the shape and basics
-# of the program. The documentaion is written about the configuration
-# file in Github repository Wiki.
-configs = configparser.ConfigParser()
-configs.read(CONFIG_FILE)
+# Number of frequency bins returned by the
+# Fourier Transform.
+_configs['audioIO']['fftBins'] = int(_configs['audioIO']['bufferSize'] / 2)
 
-# Configuration that used to customize the application.
-# Is stored in the configs/*.
-
-
-# Constants which defines how Visualizer would act.
-fftBins = int(int(configs['AudioIO']['BufferSize'])/2)
-
-# This class lets us access the PortAudio API. To stream or record the
-# audio data. As 32-bit Floating Point precision.
+# Opens an interface to PortAudio to recieve audio
+# data from AUX input.
 pcm_grabber = pyaudio.PyAudio()
 vis = Visualise.Visualiser(
-    int(configs['Viewport']['Width']),
-    int(configs['Viewport']['Height']),
+    _configs['viewport']['width'],
+    _configs['viewport']['height'],
     fftBins
 )
 
-# List the input the devices avialable on the device.
-# Print some information about each device too.
 
 # Maximum number of devices for I/O operation via the Host API.
 # TODO: fix the lagging of device selection feature
@@ -42,7 +35,7 @@ maximum_device = pcm_grabber.get_device_count()
 # Selection is not avialable due to regressions (would be fixed later).
 for device_index in range(maximum_device):
     device_info = pcm_grabber.get_device_info_by_index(device_index)
-    
+
     print(
         "[%d %s%s] %s" % (
             device_info['index'],
@@ -51,23 +44,6 @@ for device_index in range(maximum_device):
             device_info['name']
         )
     )
-
-# Color palette are added into code to decorate the Visualization.
-# Thanks to, `colorhunt.co` for some of the great color palettes.
-color_palettes = [
-    #       Foreground                Background
-    [[0x00, 0xad, 0xb5, 0xff], [0x22, 0x28, 0x31, 0xff]], # Green-Darkblue   (0) 
-    [[0xf7, 0x77, 0x54, 0xff], [0x58, 0x4b, 0x42, 0xff]], # Orange-Brown     (1)
-    [[0xf7, 0x77, 0x54, 0xff], [0x22, 0x28, 0x31, 0xff]], # Orange-Darkblue  (2)
-    [[0xff, 0xff, 0xff, 0xff], [0x00, 0x00, 0x00, 0xff]], # White-Black      (3)
-]
-
-# Index of the color palette to use and draw the FFT spectrum on the screen.
-# Above you can get some list of color palettes.
-x = 0
-
-fg_color = color_palettes[x][0]
-bg_color = color_palettes[x][1]
 
 
 # Unpacker which is construcuted only to decode
@@ -89,7 +65,7 @@ def _process_audio(frames, nFrames, timeInfo, status):
     # defition of color palettes are given above this
     # function and explained in detail.
     isClosed = vis.draw(audio_buffer, (bg_color, fg_color))
-    
+
     # If the UI encounters a close event abort
     # the PyAudio stream too.
     if isClosed:
@@ -101,11 +77,11 @@ def _process_audio(frames, nFrames, timeInfo, status):
 # We pipe input to output. And visuailse the Input as FFT spectrum.
 try:
     pcm_stream = pcm_grabber.open(
-        int(configs['AudioIO']['SampleRate']),
+        _configs['audioIO']['sampleRate'],
         1, pyaudio.paFloat32,
         input= True,
         stream_callback= _process_audio,
-        frames_per_buffer= int(configs['AudioIO']['BufferSize']),
+        frames_per_buffer= _configs['audioIO']['bufferSize'],
         # NOTE: This feature has been turned off. Because, it lags on WINDOWS.
         # input_device_index= selected_device
     )
@@ -115,7 +91,6 @@ except OSError:
     )); exit()
 
 from time import sleep
-# Start capturing data from the stream.
 pcm_stream.start_stream()
 
 # Hook-up this code until input device
@@ -123,6 +98,5 @@ pcm_stream.start_stream()
 while pcm_stream.is_active():
     sleep(LOOKFOR_STREAMCLOSE)
 
-# Close the stream and the interface too.
 pcm_stream.stop_stream()
 pcm_stream.close()

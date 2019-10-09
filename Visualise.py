@@ -13,15 +13,15 @@ from numpy import abs as fft_abs
 from ctypes import pointer
 from math import log10
 
-# Maximum numeric value of each bin in the FFT spectrum.
-# Scaled to 255 to suit convolutions.
+# Maximum positive value of each bin returned by the
+# fourier treansform.
 FFT_VAL_MAX = 255
 
 
 def maprange(x: float, min: tuple, max: tuple):
     (a, b) = min # a: input minimum, b: input maximum
     (c, d) = max # c: output minimum, b: output maximum
-    
+
     return ((x - a) * ((d - c) / (b - a))) + c
 
 # # Minimum dynamic range (expressed in decibels). The hearing dynamic
@@ -81,7 +81,7 @@ class Visualiser():
         return {
             "window": self._window,
             "renderer": self._renderer,
-            "event": self._event 
+            "event": self._event
         }
 
     def draw(
@@ -93,7 +93,7 @@ class Visualiser():
         # Slice it to half because of the nyquist theorem.
         # This FFT outputs each bin with numeric range of [-255..255]
         self._fft_spectrum = fft(waveform)[:self._fft_bins]
-        
+
         # x = 0
         for idx in range(len(self._fft_spectrum)):
             self._data_points.contents[idx] = sdl2.SDL_Point(
@@ -118,7 +118,7 @@ class Visualiser():
         # Draw the color for the background of the Canvas.
         sdl2.SDL_SetRenderDrawColor(
             self._renderer,
-            colors[0][0], colors[0][1], colors[0][2], colors[0][3]  
+            colors[0][0], colors[0][1], colors[0][2], colors[0][3]
         )
         sdl2.SDL_RenderClear(self._renderer)
 
