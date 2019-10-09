@@ -1,0 +1,7 @@
+audioIO:
+  sampleRate: 40000 # number of discrete samples to capture
+  bufferSize: 1024  # samples send per callback
+
+viewport:
+  width: 640
+  height: 480
