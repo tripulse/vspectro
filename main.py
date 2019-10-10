@@ -3,80 +3,82 @@
 
 import pyaudio
 from struct import Struct
-import configparser
-import Visualise
+from visualise import Visualiser
 from constants import *
 from chalk import red, green
-from yaml import load, CLoader
+from yaml import safe_load, CLoader
+from theme import Theme
+
+components = {
+    # Unpacks Float32 data from octets of native-byte order.
+    'pcmUnpacker': Struct("=f"),
+    'themeLoader': Theme,
+    'audioLoader': pyaudio.PyAudio,
+    'visualiser': Visualiser
+}
 
 # Parses the configuration file corresponding to this program.
 # And uses properties of it in several aspects of it.
-_configs = yaml.loads("configs/general.yml", Loader=CLoader)
+_configs = safe_load(open(CONFIG_FILES[0]))
 
-# Number of frequency bins returned by the
-# Fourier Transform.
+# Number of *actually used* bins returned from the Fourier Transform.
+# According to Nyquist the samplerate must be the double of the
+# frequency. The maximum frequency to reach is 22050 (44100hZ)
 _configs['audioIO']['fftBins'] = int(_configs['audioIO']['bufferSize'] / 2)
 
-# Opens an interface to PortAudio to recieve audio
-# data from AUX input.
-pcm_grabber = pyaudio.PyAudio()
-vis = Visualise.Visualiser(
+components['audioLoader'] = pyaudio.PyAudio()
+components['visualiser'] = Visualiser(
     _configs['viewport']['width'],
     _configs['viewport']['height'],
-    fftBins
+    _configs['audioIO']['fftBins']
 )
 
 
 # Maximum number of devices for I/O operation via the Host API.
 # TODO: fix the lagging of device selection feature
-maximum_device = pcm_grabber.get_device_count()
+maximum_device = components['audioLoader'].get_device_count()
 
 # List all the devices supported by the Host API.
 # Selection is not avialable due to regressions (would be fixed later).
 for device_index in range(maximum_device):
-    device_info = pcm_grabber.get_device_info_by_index(device_index)
+    device_info = components['audioLoader'].get_device_info_by_index(device_index)
 
     print(
         "[%d %s%s] %s" % (
             device_info['index'],
-            green("I") if device_info['maxInputChannels'] else str(),
-            red("O") if device_info['maxOutputChannels'] else str(),
+            green('I') if device_info['maxInputChannels'] else str(),
+            red('O') if device_info['maxOutputChannels'] else str(),
             device_info['name']
         )
     )
 
+# Intialize the component theme. And get the color
+# palette to draw on the screen.
+components['themeLoader'] = Theme(CONFIG_FILES[1])
+_theme = components['themeLoader'].getPalette()
 
-# Unpacker which is construcuted only to decode
-# Float32 data from octets using native byte-order.
-_unpacker = Struct("=f")
 
 def _process_audio(frames, nFrames, timeInfo, status):
-    audio_buffer = list(
-        map(
-            lambda sample: sample[0], # iter_unpack returns each item wrapped
-                                      # in a tuple. hence, we've to unpack
-                                      # it manually.
-            _unpacker.iter_unpack(frames)
-        )
-    )
+    audio_buffer = list(map(
+        lambda sample: sample[0],
+        components['pcmUnpacker'].iter_unpack(frames)
+    ))
 
+    # Draw each buffer recieved from the callback.
+    # In the Backend SDL does all the work.
+    isClosed = components['visualiser'] \
+    .draw(audio_buffer, (
+        _theme['background'],
+        _theme['foreground']
+    ))
 
-    # (bg_color) is background, (fg_color) is foreground.
-    # defition of color palettes are given above this
-    # function and explained in detail.
-    isClosed = vis.draw(audio_buffer, (bg_color, fg_color))
-
-    # If the UI encounters a close event abort
-    # the PyAudio stream too.
-    if isClosed:
-        return (bytes(), pyaudio.paComplete)
-
-    return (bytes(), pyaudio.paContinue)
+    return (bytes(), pyaudio.paComplete) if isClosed \
+            else (bytes(), pyaudio.paContinue)
 
 # Open a full-duplex stream which can output and input.
 # We pipe input to output. And visuailse the Input as FFT spectrum.
 try:
-    pcm_stream = pcm_grabber.open(
+    pcm_stream = components['audioLoader'].open(
         _configs['audioIO']['sampleRate'],
         1, pyaudio.paFloat32,
         input= True,
@@ -93,8 +95,8 @@ except OSError:
 from time import sleep
 pcm_stream.start_stream()
 
-# Hook-up this code until input device
-# gets disconnected.
+# Hook-up this application theread to the PortAudio thread.
+# And, wait until the PortAudio thread exits.
 while pcm_stream.is_active():
     sleep(LOOKFOR_STREAMCLOSE)
 
