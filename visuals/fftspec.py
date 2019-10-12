@@ -1,6 +1,6 @@
 from sdl2 import SDL_Point
 from ctypes import pointer
-from numpy.fft import rfft
+from numpy.fft import fft
 from numpy import abs as norm
 from comps.constants import NP_FFT_MAXVAL
 
@@ -22,7 +22,7 @@ class FFTSpectrum():
         self.config['n_fftbins'] = int(n_samples/2)
         self.config['max_datapoints'] = max_datapoints
         self.config['slice_width'] = max_datapoints \
-                                    / n_samples
+                                    / self.config['n_fftbins']
 
         # Allocates the datapoints to place the spectrum
         # data in to later visualise it.
@@ -33,23 +33,22 @@ class FFTSpectrum():
         waveform: tuple,
         vp_scaling: int
     ):
-        fft_data = list(norm(rfft(waveform)) \
-            [:self.config['n_fftbins']])
+        fft_data = norm(fft(waveform)) \
+            [:self.config['n_fftbins']]
 
-        x = y = 0 #< coordinates of each point
-        for idx in range(self.config['max_datapoints']):
-            y = fft_data[idx]
-
+        (x, y) = (0, 0) #< inital coordinates, later used to store them
+        for idx, bin in enumerate(fft_data):
             self.datapoints.contents[idx] = SDL_Point(
                 round(x),
                 int(maprange(
-                    y,
-                    -NP_FFT_MAXVAL, NP_FFT_MAXVAL,
-                    0, vp_scaling
+                    bin,
+                    0, NP_FFT_MAXVAL,
+                    vp_scaling, 0
             )))
 
             x += self.config['slice_width']
 
         # Standard callback return format specified by:
-        # ../src/visualise.py
-        return (self.datapoints, self.config['n_fftbins'])
+        # ../src/visualise.py.
+        # A tuple of (datapoints, count of datapoints)
+        return (self.datapoints.contents, self.config['n_fftbins'])

@@ -11,8 +11,9 @@ from yaml            import load, CLoader
 from visuals.fftspec import FFTSpectrum
 
 class Spectro():
+    # Short description about the class itself.
     def __repr__(self):
-        return "Spectro - a spectrum analyser in python"
+        return "Spectro — a spectrum analyser in Python"
 
     def __init__(self, configuration: dict = None):
         self.config = configuration
@@ -52,6 +53,10 @@ class Spectro():
             stream_callback= self.process_audiodata,
             frames_per_buffer= self.config['audioIO']['bufferSize']
         )
+
+        # Register as a component of the class.
+        # Can be used by other methods later on.
+        self.components['audio_stream'] = audioStream
 
         # Start the audio stream recieve data from the input audio
         # device show spectrum on the Visualiser.
@@ -104,26 +109,20 @@ class Spectro():
     def close(self):
         pass
 
-
 def main():
     config = load(open('configs/general.yml', 'r'), Loader=CLoader)
     config['audioIO']['nfft_bins'] = int(config['audioIO']['bufferSize']/2)
 
-    spect = Spectro(config)
-    
-    # import threading
-    # _spec = threading.Thread(target= Spectro, kwargs= {'configuration': config})
-
-    # _spec.run()
-    # _spec.join()
-
-    while 1:
-        pass
+    spectro = Spectro(config)
 
     # Lists audio devices that avialable via
     # the Host API.
-    for index, device in enumerate(spect.list_audiodevices()):
+    for index, device in enumerate(spectro.list_audiodevices()):
         print("[%d] %s" % (index, device['name']))
+
+    import time
+    while spectro.components['audio_stream'].is_active():
+        time.sleep(LOOKFOR_STREAMCLOSE)
 
 if __name__ == "__main__":
     main()

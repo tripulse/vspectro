@@ -115,6 +115,7 @@ class Visualiser():
         background = self.color_palette['background']
 
         sdl2.SDL_SetRenderDrawColor(
+            self.context['renderer'],
             background[0],
             background[1],
             background[2],
@@ -123,6 +124,7 @@ class Visualiser():
         sdl2.SDL_RenderClear(self.context['renderer'])
 
         sdl2.SDL_SetRenderDrawColor(
+            self.context['renderer'],
             foreground[0],
             foreground[1],
             foreground[2],

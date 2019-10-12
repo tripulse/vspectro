@@ -3,5 +3,5 @@ audioIO:
   bufferSize: 1024  # samples send per callback
 
 viewport:
-  width: 640
-  height: 480
+  width: 800
+  height: 600
