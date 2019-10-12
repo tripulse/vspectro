@@ -2,103 +2,128 @@
 # If you want to add a feature (use it here).
 
 import pyaudio
-from struct import Struct
-from visualise import Visualiser
-from constants import *
-from chalk import red, green
-from yaml import safe_load, CLoader
-from theme import Theme
+from sdl2            import SDL_PollEvent, SDL_QUIT
+from struct          import Struct
+from comps.visualise import Visualiser
+from comps.constants import *
+from comps.theme     import Theme
+from yaml            import load, CLoader
+from visuals.fftspec import FFTSpectrum
 
-components = {
-    # Unpacks Float32 data from octets of native-byte order.
-    'pcmUnpacker': Struct("=f"),
-    'themeLoader': Theme,
-    'audioLoader': pyaudio.PyAudio,
-    'visualiser': Visualiser
-}
+class Spectro():
+    def __repr__(self):
+        return "Spectro - a spectrum analyser in python"
 
-# Parses the configuration file corresponding to this program.
-# And uses properties of it in several aspects of it.
-_configs = safe_load(open(CONFIG_FILES[0]))
+    def __init__(self, configuration: dict = None):
+        self.config = configuration
+        self.components = {
+            'audio':        pyaudio.PyAudio(), #< audio backend to recieve audio data
+            'theming':      Theme(             #< theme manager of the program
+                CONFIG_FILES[1]
+            ),
+            'pcm_unpacker': Struct('=f'),      #< unpacks float32 data in native byte order,
+            'visualiser':   Visualiser(        #< visualizes datapoints (usually samples or frequnecy bins),
+                self.__repr__(),
+                self.config['viewport']['width'],
+                self.config['viewport']['height'],
+            ),
+            'visualiser_cb': FFTSpectrum(
+                self.config['audioIO']['bufferSize'],
+                self.config['viewport']['width']
+            )
+        }
 
-# Number of *actually used* bins returned from the Fourier Transform.
-# According to Nyquist the samplerate must be the double of the
-# frequency. The maximum frequency to reach is 22050 (44100hZ)
-_configs['audioIO']['fftBins'] = int(_configs['audioIO']['bufferSize'] / 2)
+        color_palette = self.components['theming'] \
+                            .getPalette()
 
-components['audioLoader'] = pyaudio.PyAudio()
-components['visualiser'] = Visualiser(
-    _configs['viewport']['width'],
-    _configs['viewport']['height'],
-    _configs['audioIO']['fftBins']
-)
+        self.components['visualiser'] \
+            .set_callback(self.components['visualiser_cb'].compute)
 
+        self.components['visualiser'] \
+            .set_palette(
+                color_palette['foreground'],
+                color_palette['background']
+            )
 
-# Maximum number of devices for I/O operation via the Host API.
-# TODO: fix the lagging of device selection feature
-maximum_device = components['audioLoader'].get_device_count()
-
-# List all the devices supported by the Host API.
-# Selection is not avialable due to regressions (would be fixed later).
-for device_index in range(maximum_device):
-    device_info = components['audioLoader'].get_device_info_by_index(device_index)
-
-    print(
-        "[%d %s%s] %s" % (
-            device_info['index'],
-            green('I') if device_info['maxInputChannels'] else str(),
-            red('O') if device_info['maxOutputChannels'] else str(),
-            device_info['name']
+        audioStream = self.components['audio'].open(
+            self.config['audioIO']['sampleRate'],
+            1, pyaudio.paFloat32,
+            input= True,
+            stream_callback= self.process_audiodata,
+            frames_per_buffer= self.config['audioIO']['bufferSize']
         )
-    )
 
-# Intialize the component theme. And get the color
-# palette to draw on the screen.
-components['themeLoader'] = Theme(CONFIG_FILES[1])
-_theme = components['themeLoader'].getPalette()
+        # Start the audio stream recieve data from the input audio
+        # device show spectrum on the Visualiser.
+        audioStream.start_stream()
+
+    def list_audiodevices(self) -> dict:
+        """Iterates find the devices that can be accessed by PortAudio API.
+        The function runs an iteration process and looks up all the input/output
+        devices and returns information about each device in a dictionary.
+
+        :rtype dict:
+            Each dictionary conatins information about the device.
+        """
+
+        # Maximum number of devices provided by the Host API of
+        # the operating system. Used for iteration of devices.
+        max_devices = self.components['audio'].get_device_count()
+
+        # Loops trough all the devices and returns signle output
+        # device per call (basically, implementing an iterator).
+        for devidx in range(max_devices):
+            yield \
+                self.components['audio'].get_device_info_by_index(devidx)
+
+    def process_audiodata(
+        self, 
+        frames, nFrames, 
+        timeInfo, status
+    ) -> tuple:
+        audiobuffer = tuple(map(
+            lambda sample: sample[0],
+            self.components['pcm_unpacker'] \
+                .iter_unpack(frames)
+        ))
+
+        self.components['visualiser'] \
+            .paint(audiobuffer,
+                self.config['viewport']['height']
+            )
+
+        if SDL_QUIT == SDL_PollEvent(
+            self.components['visualiser'] 
+                .context['events']
+        ):
+            return (bytes(), pyaudio.paComplete)
+        
+        # Continue until SDL_QUIT event occurs.
+        return (bytes(), pyaudio.paContinue)
+
+    def close(self):
+        pass
 
 
-def _process_audio(frames, nFrames, timeInfo, status):
-    audio_buffer = list(map(
-        lambda sample: sample[0],
-        components['pcmUnpacker'].iter_unpack(frames)
-    ))
+def main():
+    config = load(open('configs/general.yml', 'r'), Loader=CLoader)
+    config['audioIO']['nfft_bins'] = int(config['audioIO']['bufferSize']/2)
 
-    # Draw each buffer recieved from the callback.
-    # In the Backend SDL does all the work.
-    isClosed = components['visualiser'] \
-    .draw(audio_buffer, (
-        _theme['background'],
-        _theme['foreground']
-    ))
+    spect = Spectro(config)
+    
+    # import threading
+    # _spec = threading.Thread(target= Spectro, kwargs= {'configuration': config})
 
-    return (bytes(), pyaudio.paComplete) if isClosed \
-            else (bytes(), pyaudio.paContinue)
+    # _spec.run()
+    # _spec.join()
 
-# Open a full-duplex stream which can output and input.
-# We pipe input to output. And visuailse the Input as FFT spectrum.
-try:
-    pcm_stream = components['audioLoader'].open(
-        _configs['audioIO']['sampleRate'],
-        1, pyaudio.paFloat32,
-        input= True,
-        stream_callback= _process_audio,
-        frames_per_buffer= _configs['audioIO']['bufferSize'],
-        # NOTE: This feature has been turned off. Because, it lags on WINDOWS.
-        # input_device_index= selected_device
-    )
-except OSError:
-    print(red(
-        "Encountered problems while intializing Input device(s).",
-    )); exit()
+    while 1:
+        pass
 
-from time import sleep
-pcm_stream.start_stream()
+    # Lists audio devices that avialable via
+    # the Host API.
+    for index, device in enumerate(spect.list_audiodevices()):
+        print("[%d] %s" % (index, device['name']))
 
-# Hook-up this application theread to the PortAudio thread.
-# And, wait until the PortAudio thread exits.
-while pcm_stream.is_active():
-    sleep(LOOKFOR_STREAMCLOSE)
-
-pcm_stream.stop_stream()
-pcm_stream.close()
+if __name__ == "__main__":
+    main()
