@@ -4,7 +4,7 @@
 
 Spectro can be customized a *lot* by the power of the "configuration files" and the source code that makes it. Currently, this application requires two major dependencies — `SDL2`, `PortAudio`. Without these dependencies the project wouldn't have its soul.
 
-> The `PortAudio` dependency would be removed in future and a plan to release shared libs
+> ~~The `PortAudio` dependency would be removed in future~~ and a plan to release shared libs
 > <br/>
 > with the program may be conducted.
 
