@@ -28,7 +28,6 @@ class Visualiser():
     context = {
         'window': sdl2.SDL_Window(),
         'renderer': sdl2.SDL_Renderer(),
-        'events': sdl2.SDL_Event()
     }
 
     def __init__(
@@ -40,8 +39,6 @@ class Visualiser():
         self.viewport['width'] = width
         self.viewport['height'] = height
 
-        # Initialize the SDL2 library for VIDEO rendering
-        # and events too (eg. close event capturing)
         sdl2.SDL_Init(sdl2.SDL_INIT_VIDEO | sdl2.SDL_INIT_EVENTS)
 
         self.context['window'] = sdl2.SDL_CreateWindow(
@@ -51,26 +48,13 @@ class Visualiser():
             width, height, 0
         )
 
-        # Renderer that does processing on the backend and
-        # show the final ouput as a raster image frame.
         self.context['renderer'] = sdl2.SDL_CreateRenderer(
             self.context['window'], -1, 0
         )
 
-        # Used to handle different types of events
-        # than occur while user interaction.
-        self.context['event'] = sdl2.SDL_Event()
-
-
-    def get_viewport(self):
-        """Used to get the viewport information of the Render Window"""
-        return \
-            (self.viewport['width'],
-             self.viewport['height'])
-
-    # Callback function where parameters are passed.
-    # And then we get processed lines later.
     def set_callback(self, fn):
+        """Assigns the function provided in the argument as the callback
+        when invoked the `paint()` method."""
         self.callback = fn
 
     def set_palette(
@@ -98,22 +82,21 @@ class Visualiser():
     def paint(self, *args):
         """Draws datapoints recieved from the callback function.
 
-        This function paints the datapoints returned by the Callback function.
-        It must return a tuple of 
-        `(Pointers to SDL_Point, Number of datapoints)`.
+        The function invokes a callback set previously and pulls the data
+        off the return value and visualises the data as points.
+        The callback function must return a tuple consisting `LP_SDL_Point_*`
 
         
-        Passed arguments are passed into the callback function. Formely unknown
-        as the userData method in C/C++ programming.
+        The rest of the arguments are passed to the callback function. Useful,
+        if the Callback Function requires somekind of input.
         """
 
         (data_points, num_datapoints) = self.callback(*args)
-
-        # The color palette that is used in to
-        # draw the lines and the background.
+.
         foreground = self.color_palette['foreground']
         background = self.color_palette['background']
 
+        # Draws the background #
         sdl2.SDL_SetRenderDrawColor(
             self.context['renderer'],
             background[0],
@@ -123,6 +106,7 @@ class Visualiser():
         )
         sdl2.SDL_RenderClear(self.context['renderer'])
 
+        # Draws the datapoints as paths #
         sdl2.SDL_SetRenderDrawColor(
             self.context['renderer'],
             foreground[0],

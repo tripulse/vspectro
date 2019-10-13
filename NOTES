@@ -1,0 +1,5 @@
+visuals/
+    - Build a script that does managing of all type of Visualizations.
+    - Design a configuration file that selects which type of Visualization the
+      end user requires.
+    - Document the configuration file for the end-user to get easy.

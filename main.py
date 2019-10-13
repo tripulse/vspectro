@@ -1,17 +1,17 @@
-# This is the root file of the project.
-# If you want to add a feature (use it here).
-
 import pyaudio
-from sdl2            import SDL_PollEvent, SDL_QUIT
 from struct          import Struct
 from comps.visualise import Visualiser
 from comps.constants import *
 from comps.theme     import Theme
 from yaml            import load, CLoader
 from visuals.fftspec import FFTSpectrum
+from utils           import SDL_IsEventOccured
+from sdl2            import SDL_QUIT
 
 class Spectro():
-    # Short description about the class itself.
+    config = {}
+    components = {}
+
     def __repr__(self):
         return "Spectro — a spectrum analyser in Python"
 
@@ -28,15 +28,19 @@ class Spectro():
                 self.config['viewport']['width'],
                 self.config['viewport']['height'],
             ),
-            'visualiser_cb': FFTSpectrum(
+            'visualiser_cb': FFTSpectrum(      #< the visualiser callback (renders itself into datapoints)
                 self.config['audioIO']['bufferSize'],
                 self.config['viewport']['width']
             )
         }
 
+        # Palette Index is specifed in the configuration file.
+        # So, don't mess with Indices of Palette.
         color_palette = self.components['theming'] \
                             .getPalette()
 
+        # The callback function which is called to return data
+        # the paint() method is invoked.
         self.components['visualiser'] \
             .set_callback(self.components['visualiser_cb'].compute)
 
@@ -46,21 +50,23 @@ class Spectro():
                 color_palette['background']
             )
 
-        audioStream = self.components['audio'].open(
+        # Opens a stream to recieve or send the Audio data.
+        # NOTE: always mono because we don't want to implement
+        #       stereo input, float32 because it is easier to
+        #       work with and requires no scaling when passed
+        #       for FFT computation, non-blocking I/O because
+        #       blocking method is inefficient in this case
+        audio_stream = self.components['audio'].open(
             self.config['audioIO']['sampleRate'],
             1, pyaudio.paFloat32,
             input= True,
-            stream_callback= self.process_audiodata,
+            output= True,
+            stream_callback= self._process_audiodata,
             frames_per_buffer= self.config['audioIO']['bufferSize']
         )
 
-        # Register as a component of the class.
-        # Can be used by other methods later on.
-        self.components['audio_stream'] = audioStream
-
-        # Start the audio stream recieve data from the input audio
-        # device show spectrum on the Visualiser.
-        audioStream.start_stream()
+        self.components['audio_stream'] = audio_stream
+        audio_stream.start_stream()
 
     def list_audiodevices(self) -> dict:
         """Iterates find the devices that can be accessed by PortAudio API.
@@ -79,13 +85,18 @@ class Spectro():
         # device per call (basically, implementing an iterator).
         for devidx in range(max_devices):
             yield \
-                self.components['audio'].get_device_info_by_index(devidx)
+                self.components['audio']\
+                    .get_device_info_by_index(devidx)
 
-    def process_audiodata(
+    def _process_audiodata(
         self, 
         frames, nFrames, 
         timeInfo, status
     ) -> tuple:
+        """
+        This method is a internal method to process, visualise, playback
+        audio recieved from the input.
+        """
         audiobuffer = tuple(map(
             lambda sample: sample[0],
             self.components['pcm_unpacker'] \
@@ -93,35 +104,59 @@ class Spectro():
         ))
 
         self.components['visualiser'] \
-            .paint(audiobuffer,
-                self.config['viewport']['height']
+            .paint(audiobuffer, self.config['viewport']['height'])
+
+        # CONDITION: if window has encountered a close event
+        # then close everything.
+        if SDL_IsEventOccured(SDL_QUIT):
+            print(
+                "The application has encountered a close event"
+                "; closing everything."
             )
 
-        if SDL_QUIT == SDL_PollEvent(
-            self.components['visualiser'] 
-                .context['events']
-        ):
-            return (bytes(), pyaudio.paComplete)
-        
-        # Continue until SDL_QUIT event occurs.
-        return (bytes(), pyaudio.paContinue)
+            self.close()
+            return (frames, pyaudio.paComplete)
+
+        # Return the samples for Playback of audio. With status, ok.
+        #       frames in octets  reponse of callback
+        return (     frames,      pyaudio.paContinue)
 
     def close(self):
-        pass
+        raise NotImplementedError("The close function is not implemented yet!")
 
 def main():
-    config = load(open('configs/general.yml', 'r'), Loader=CLoader)
-    config['audioIO']['nfft_bins'] = int(config['audioIO']['bufferSize']/2)
+    with open('configs/general.yml', 'r') as config_file:
+        config = load(config_file, Loader=CLoader)
+        config['audioIO']['nfft_bins'] = int(
+            config['audioIO']['bufferSize']
+            / 2
+        )
 
-    spectro = Spectro(config)
+        # The instance of the class also known as the
+        # main application.
+        _app = Spectro(config)
 
-    # Lists audio devices that avialable via
-    # the Host API.
-    for index, device in enumerate(spectro.list_audiodevices()):
-        print("[%d] %s" % (index, device['name']))
+    # Listing of Audio IO devices whose are avialable
+    # via the Host API. Selected devices would be highlighted.
+    (indev_id, outdev_id) = (_app.components['audio']
+                            .get_default_input_device_info()['index'],
+                             _app.components['audio']
+                            .get_default_output_device_info()['index']
+                            )
 
+    print("List of IO devices:")
+    for index, device in enumerate(_app.list_audiodevices()):
+        if index in (indev_id, outdev_id):
+            print(" [%s*] %s" % (index, device['name']))
+        else:
+            print(" [%s] %s" % (index, device['name']))
+
+
+    # Legacy thread-hooking. Idk, what I'm doing here.
+    # TODO: implement multi-threading and hook up PortAudio thread
+    #       with the main thread.
     import time
-    while spectro.components['audio_stream'].is_active():
+    while _app.components['audio_stream'].is_active():
         time.sleep(LOOKFOR_STREAMCLOSE)
 
 if __name__ == "__main__":
