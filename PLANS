@@ -1,0 +1,7 @@
+Spectro 1.4-rc:
+    - Replace the PortAudio backend with the Py-sounddevice.
+      Reason is sounddevice is easier to work with
+      and provides the same PortAudio bindings.
+
+    - Change the C-compatible SDL methods and types with
+      their Python compatible counterparts.
