@@ -4,7 +4,7 @@ from comps.visualise import Visualiser
 from comps.constants import *
 from comps.palettes  import PaletteContext
 from yaml            import load, CLoader
-from visuals.fftspec import FFTSpectrum
+from visuals.fftspec import FFTSpectrum, PlotDimensions
 from utils           import SDL_IsEventOccured
 from sdl2            import SDL_QUIT
 
@@ -25,7 +25,8 @@ class Spectro():
             ),
             'visualiser_cb': FFTSpectrum(      #< the visualiser callback (renders itself into datapoints)
                 self.config['audioIO']['bufferSize'],
-                self.config['viewport']['width']
+                self.config['viewport']['width'],
+                PlotDimensions(self.config['viewport']['width'], self.config['viewport']['height'])
             )
         }
 
@@ -98,7 +99,7 @@ class Spectro():
         ))
 
         self.components['visualiser'] \
-            .paint(audiobuffer, self.config['viewport']['height'])
+            .paint(audiobuffer)
 
         # Return the samples for Playback of audio. With status, ok.
         #       frames in octets  reponse of callback
@@ -111,9 +112,10 @@ import comps.configloader as configloader
 import logging
 import sys
 import tkinter
-import gui.info
+import gui.view
 
 gui_main = tkinter.Tk()
+gui_main.title("Configuration Explorer")
 
 """ Configure the logging system. All the logs would be 
     dumped into the STDOUT. """
@@ -130,7 +132,7 @@ def main():
 
     # Add a GUI interface to the program. If the GUI closes the 
     # entire application itself does close.
-    gui.info.Information(gui_main) \
+    gui.view.ObjectViewer(gui_main) \
         .display_info(main_config.parsed_config)
     
     # Specify the amount of FFT bins we require to show in the window.
@@ -140,7 +142,8 @@ def main():
     main_app = Spectro(main_config.parsed_config)
     root_logger.info(f"Intialised the application instance {main_app.__repr__()}")
 
-    gui_main.title("Signal Properties")
+    gui.view.ObjectViewer(gui_main) \
+        .display_info(main_app.components['theming'].parsed_config)
 
     # Listing of Audio IO devices whose are avialable
     # via the Host API. Selected devices would be highlighted.

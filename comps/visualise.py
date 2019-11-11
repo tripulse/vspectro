@@ -1,4 +1,5 @@
 import sdl2
+from operator import itemgetter
 
 class Visualiser():
     """An simple interface to visualise data points on a Canvas using SDL.
@@ -45,7 +46,8 @@ class Visualiser():
             window_title.encode('utf-8'),
             sdl2.SDL_WINDOWPOS_CENTERED,
             sdl2.SDL_WINDOWPOS_CENTERED,
-            width, height, 0
+            width, height, 
+            sdl2.SDL_WINDOW_BORDERLESS
         )
 
         self.context['renderer'] = sdl2.SDL_CreateRenderer(
@@ -91,8 +93,9 @@ class Visualiser():
         if the Callback Function requires somekind of input.
         """
 
-        (data_points, num_datapoints) = self.callback(*args)
-.
+        (data_points, num_datapoints) = \
+            itemgetter('datapoints', 'length')(self.callback(*args))
+
         foreground = self.color_palette['foreground']
         background = self.color_palette['background']
 
@@ -105,6 +108,9 @@ class Visualiser():
             background[3]
         )
         sdl2.SDL_RenderClear(self.context['renderer'])
+
+        # Rectangle object to draw rects on the screen.
+        rect = sdl2.SDL_Rect()
 
         # Draws the datapoints as paths #
         sdl2.SDL_SetRenderDrawColor(

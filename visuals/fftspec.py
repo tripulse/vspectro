@@ -1,54 +1,61 @@
 from sdl2 import SDL_Point
 from ctypes import pointer
-from numpy.fft import fft
-from numpy import abs as norm
-from comps.constants import NP_FFT_MAXVAL
+import numpy
+import typing
 
-maprange = lambda x, a, b, c, d: \
-            ((x - a) * ((d - c) / (b - a))) + c
+maprange = lambda x, a,b, c,d: \
+    (x - a) * (d - c) / (b - a) + c
 
-class FFTSpectrum():
-    # All the configuration of applying FFT transform.
-    config = {}
+class PlotDimensions(typing.NamedTuple):
+    """
+    Collection of limits of the datapoints' [X, Y] coordinates
+    (width as maximum X, height as maximum Y).
+    """
+    width: int
+    height: int
+
+class FFTSpectrum:
+    """
+    A visualizer *built-in* plugin to transform waveforms into
+    plotted FFT spectrum datapoints.
+    """
+    config: dict = {}
 
     def __init__(
         self,
         n_samples: int,
-        max_datapoints: int
+        max_datapoints: int,
+        viewport: PlotDimensions
     ):
-        # Number of bins to use from the FFT spectrum.
-        # As of the nyquist, samplerate must be
-        # double of the maximum frequency.
         self.config['n_fftbins'] = int(n_samples/2)
         self.config['max_datapoints'] = max_datapoints
-        self.config['slice_width'] = max_datapoints \
-                                    / self.config['n_fftbins']
+        self.config['slice_width'] = max_datapoints / self.config['n_fftbins']
+        self.config['viewport'] = viewport
 
-        # Allocates the datapoints to place the spectrum
-        # data in to later visualise it.
         self.datapoints = pointer((SDL_Point * self.config['n_fftbins'])())
 
     def compute(
         self,
-        waveform: tuple,
-        vp_scaling: int
+        waveform: numpy.array
     ):
-        fft_data = norm(fft(waveform)) \
-            [:self.config['n_fftbins']]
+        # Compute a Real-To-Complex FFT on the input signal and slice it half
+        # to display only the required part of the frequency domain.
+        fft_data = numpy.abs(numpy.fft.rfft(waveform))[:self.config['n_fftbins']]
 
-        (x, y) = (0, 0) #< inital coordinates, later used to store them
+        (x, y) = (0, 0)
         for idx, bin in enumerate(fft_data):
+            y = int(round(maprange(
+                    bin,
+                    0, 255, # TODO: find the correct range of the output!
+                    self.config['viewport'].height, 0)))
+
             self.datapoints.contents[idx] = SDL_Point(
                 round(x),
-                int(maprange(
-                    bin,
-                    0, NP_FFT_MAXVAL,
-                    vp_scaling, 0
-            )))
-
+                round(y)
+            )
             x += self.config['slice_width']
 
-        # Standard callback return format specified by:
-        # ../src/visualise.py.
-        # A tuple of (datapoints, count of datapoints)
-        return (self.datapoints.contents, self.config['n_fftbins'])
+        return {
+            'datapoints': self.datapoints.contents,
+            'length': self.config['n_fftbins']
+        }

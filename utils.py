@@ -1,9 +1,8 @@
 from sdl2 import SDL_Event, SDL_PollEvent
-
 def SDL_IsEventOccured(event_type: int):
     """
-    Looks up for a SDL event. If event isn't triggered then `False`
-    otherwise `True`.
+    Polls for whether the event passed has been occured or not.
+    True if occured, False if not.
     """
     _event = SDL_Event()
     SDL_PollEvent(_event)
