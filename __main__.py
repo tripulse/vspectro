@@ -129,11 +129,6 @@ def main():
     # on the https://github.com/nullvideo/spectro/wiki.
     main_config = configloader.ConfigContext(configloader.ConfigType.Yaml)
     main_config.parse(open(ConfigFiles['general']).read())
-
-    # Add a GUI interface to the program. If the GUI closes the 
-    # entire application itself does close.
-    gui.view.ObjectViewer(gui_main) \
-        .display_info(main_config.parsed_config)
     
     # Specify the amount of FFT bins we require to show in the window.
     main_config.parsed_config['n_fftbins'] = \
@@ -142,8 +137,8 @@ def main():
     main_app = Spectro(main_config.parsed_config)
     root_logger.info(f"Intialised the application instance {main_app.__repr__()}")
 
-    gui.view.ObjectViewer(gui_main) \
-        .display_info(main_app.components['theming'].parsed_config)
+    gui.view.ObjectViewer(gui_main, main_config.parsed_config)
+    gui.view.ObjectViewer(gui_main, main_app.components['theming'].parsed_config)
 
     # Listing of Audio IO devices whose are avialable
     # via the Host API. Selected devices would be highlighted.
