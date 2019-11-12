@@ -112,7 +112,7 @@ import comps.configloader as configloader
 import logging
 import sys
 import tkinter
-import gui.view
+import gui.objview
 
 gui_main = tkinter.Tk()
 gui_main.title("Configuration Explorer")
@@ -137,8 +137,8 @@ def main():
     main_app = Spectro(main_config.parsed_config)
     root_logger.info(f"Intialised the application instance {main_app.__repr__()}")
 
-    gui.view.ObjectViewer(gui_main, main_config.parsed_config)
-    gui.view.ObjectViewer(gui_main, main_app.components['theming'].parsed_config)
+    gui.objview.ObjectViewer(gui_main, main_config.parsed_config)
+    gui.objview.ObjectViewer(gui_main, main_app.components['theming'].parsed_config)
 
     # Listing of Audio IO devices whose are avialable
     # via the Host API. Selected devices would be highlighted.
