@@ -1,72 +1,64 @@
-import pyaudio
+from pyaudio         import PyAudio, paContinue, paFloat32
 from struct          import Struct
 from comps.visualise import Visualiser
 from comps.constants import *
 from comps.palettes  import PaletteContext
-from yaml            import load, CLoader
 from visuals.fftspec import FFTSpectrum, PlotDimensions
 from utils           import SDL_IsEventOccured
 from sdl2            import SDL_QUIT
+from comps.comploader import ComponentContext
+from operator        import itemgetter 
+
+# An instance of the component manger for the root program.
+root_components = ComponentContext()
 
 class Spectro():
     config = {}
-    components = {}
 
-    def __init__(self, configuration: dict = None):
-        self.config = configuration
-        self.components = {
-            'audio':        pyaudio.PyAudio(), #< audio backend to recieve audio data
-            'theming':      PaletteContext(),
-            'pcm_unpacker': Struct('=f'),      #< unpacks float32 data in native byte order,
-            'visualiser':   Visualiser(        #< visualizes datapoints (usually samples or frequnecy bins),
-                self.__repr__(),
-                self.config['viewport']['width'],
-                self.config['viewport']['height'],
-            ),
-            'visualiser_cb': FFTSpectrum(      #< the visualiser callback (renders itself into datapoints)
-                self.config['audioIO']['bufferSize'],
-                self.config['viewport']['width'],
-                PlotDimensions(self.config['viewport']['width'], self.config['viewport']['height'])
-            )
-        }
+    def __init__(self, config: dict = None):
+        self.config = config
 
-        # Parse the configuration from the correspoding configuration file
-        # and store that into the class for later rendering.
-        self.components['theming'].parse(open(ConfigFiles['palette']).read())
+        """ Register all the components required to execute. """
+        root_components.register('portaudio', PyAudio())
+        root_components.register('palette_manager', PaletteContext())
+        root_components.register('pcm_byteunpacker', Struct('f'))
+        root_components.register('visualizer', Visualiser(self.__repr__(), 
+            config['viewport']['width'], config['viewport']['height']
+        ))
+    
+    def init(self):
+        palettes   = root_components.access('palette_manager')
+        visualiser = root_components.access('visualizer')
 
-        # Palette Index is specifed in the configuration file.
-        # So, don't mess with Indices of Palette.
-        color_palette = self.components['theming'] \
-                            .getPalette()
+        palettes.parse(open(ConfigFiles['palette']).read())
+        logging.debug("Parsed the colourpalette.")
 
         # The callback function which is called to return data
         # the paint() method is invoked.
-        self.components['visualiser'] \
-            .set_callback(self.components['visualiser_cb'].compute)
-
-        self.components['visualiser'] \
-            .set_palette(
-                color_palette['foreground'],
-                color_palette['background']
+        visualiser \
+        .set_callback(FFTSpectrum(
+            self.config['audioIO']['bufferSize'],
+            self.config['viewport']['width'],
+            PlotDimensions(
+                self.config['viewport']['width'],
+                self.config['viewport']['height']
             )
+        ).compute)
 
-        # Opens a stream to recieve or send the Audio data.
-        # NOTE: always mono because we don't want to implement
-        #       stereo input, float32 because it is easier to
-        #       work with and requires no scaling when passed
-        #       for FFT computation, non-blocking I/O because
-        #       blocking method is inefficient in this case
-        audio_stream = self.components['audio'].open(
+        visualiser \
+        .set_palette(
+            *itemgetter('foreground', 'background') \
+            (palettes.getPalette())
+        )
+
+        root_components.access('portaudio').open(
             self.config['audioIO']['sampleRate'],
-            1, pyaudio.paFloat32,
+            1, paFloat32,
             input= True,
             output= True,
             stream_callback= self._process_audiodata,
             frames_per_buffer= self.config['audioIO']['bufferSize']
-        )
-
-        self.components['audio_stream'] = audio_stream
-        audio_stream.start_stream()
+        ).start_stream()
 
     def audiodevices(self) -> dict:
         """
@@ -77,33 +69,30 @@ class Spectro():
         :rtype dict:
             Information about each device's charecteristics.
         """
+        pa = root_components.access('portaudio')
 
-        for devidx in range(self.components['audio'].get_device_count()):
-            yield \
-                self.components['audio']\
-                    .get_device_info_by_index(devidx)
+        for devidx in range(pa.get_device_count()):
+            yield pa.get_device_info_by_index(devidx)
 
     def _process_audiodata(
         self, 
-        frames, nFrames, 
+        frames, nFrames,
         timeInfo, status
     ) -> tuple:
         """
         This method is a internal method to process, visualise, playback
         audio recieved from the input.
         """
-        audiobuffer = tuple(map(
+
+        root_components.access('visualizer').paint(map(
             lambda sample: sample[0],
-            self.components['pcm_unpacker'] \
+            root_components.access('pcm_byteunpacker') \
                 .iter_unpack(frames)
         ))
 
-        self.components['visualiser'] \
-            .paint(audiobuffer)
-
         # Return the samples for Playback of audio. With status, ok.
         #       frames in octets  reponse of callback
-        return (     frames,      pyaudio.paContinue)
+        return (     frames,      paContinue)
 
     def close(self):
         raise NotImplementedError("The close function is not implemented yet!")
@@ -129,23 +118,20 @@ def main():
     # on the https://github.com/nullvideo/spectro/wiki.
     main_config = configloader.ConfigContext(configloader.ConfigType.Yaml)
     main_config.parse(open(ConfigFiles['general']).read())
-    
-    # Specify the amount of FFT bins we require to show in the window.
-    main_config.parsed_config['n_fftbins'] = \
-        int(main_config.parsed_config['audioIO']['bufferSize'] / 2)
 
-    main_app = Spectro(main_config.parsed_config)
+    main_app = Spectro(main_config.parsed_config); main_app.init()
     root_logger.info(f"Intialised the application instance {main_app.__repr__()}")
 
-    gui.objview.ObjectViewer(gui_main, main_config.parsed_config)
-    gui.objview.ObjectViewer(gui_main, main_app.components['theming'].parsed_config)
+    logging.debug(root_components.access('palette_manager').parsed_config)
 
+    gui.objview.ObjectViewer(gui_main, main_config.parsed_config)
+    gui.objview.ObjectViewer(gui_main, root_components.access('palette_manager').parsed_config)
+
+    pa = root_components.access('portaudio')
     # Listing of Audio IO devices whose are avialable
     # via the Host API. Selected devices would be highlighted.
-    (indev_id, outdev_id) = (main_app.components['audio']
-                            .get_default_input_device_info()['index'],
-                             main_app.components['audio']
-                            .get_default_output_device_info()['index'])
+    (indev_id, outdev_id) = (pa.get_default_input_device_info()['index'],
+                             pa.get_default_output_device_info()['index'])
 
     root_logger.info("List of Input and Output devices:")
     for index, device in enumerate(main_app.audiodevices()):
