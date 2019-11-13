@@ -1,9 +1,9 @@
 import setuptools
 
 setuptools.setup(
-    name= "Spectro",
+    name= "vspectro",
     version= "1.4.0-beta",
-    description= "Spectro is a lightweight app for visualization of AUX audio input.",
+    description= "VSpectro is a lightweight app for visualization of AUX audio input.",
     long_description= open('docs/README.pypi.md').read(),
     long_description_content_type= "text/markdown",
     author= "nullvideo",
