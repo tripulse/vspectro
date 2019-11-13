@@ -99,7 +99,8 @@ class Visualiser():
         foreground = self.color_palette['foreground']
         background = self.color_palette['background']
 
-        # Draws the background #
+        # Firstly, paints the background of the visualiser
+        # to be overlayed down the datapoints.
         sdl2.SDL_SetRenderDrawColor(
             self.context['renderer'],
             background[0],
@@ -109,10 +110,6 @@ class Visualiser():
         )
         sdl2.SDL_RenderClear(self.context['renderer'])
 
-        # Rectangle object to draw rects on the screen.
-        rect = sdl2.SDL_Rect()
-
-        # Draws the datapoints as paths #
         sdl2.SDL_SetRenderDrawColor(
             self.context['renderer'],
             foreground[0],
