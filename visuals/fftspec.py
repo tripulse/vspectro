@@ -36,11 +36,11 @@ class FFTSpectrum:
 
     def compute(
         self,
-        waveform: numpy.array
+        waveform
     ):
         # Compute a Real-To-Complex FFT on the input signal and slice it half
         # to display only the required part of the frequency domain.
-        fft_data = numpy.abs(numpy.fft.rfft(waveform))[:self.config['n_fftbins']]
+        fft_data = numpy.abs(numpy.fft.rfft(tuple(waveform)))[:self.config['n_fftbins']]
 
         (x, y) = (0, 0)
         for idx, bin in enumerate(fft_data):
@@ -48,11 +48,7 @@ class FFTSpectrum:
                     bin,
                     0, 255, # TODO: find the correct range of the output!
                     self.config['viewport'].height, 0)))
-
-            self.datapoints.contents[idx] = SDL_Point(
-                round(x),
-                round(y)
-            )
+            self.datapoints.contents[idx] = SDL_Point(round(x), round(y))
             x += self.config['slice_width']
 
         return {
