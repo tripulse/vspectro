@@ -42,15 +42,14 @@ class Spectro(ArgumentParser):
         self.add_argument('-bufsize',
             type= int,
             default= 1024,
-            help= "buffer size of PCM samples to retrieve per iteration\n"
-                  "the value is samanupatik with the load (less is better)")
+            help= "number of PCM samples to retrieve per callback.\n"
+                  "this affects the density of the spectrum")
 
         self.add_argument('-samplerate',
             type= int,
             default= 44100,
-            help= "samplerate of the audio"
-                  " (over than 44100 is meaningless, see ~xiphmont's blogs"
-                  " \'https://people.xiph.org/~xiphmont/demo/neil-young.html\')")
+            help= "samplerate of the audio.\n"
+                  "which controls the time-domain resolution")
 
         self.options = self.parse_args()
     
