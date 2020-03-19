@@ -1,147 +1,115 @@
-from pyaudio         import PyAudio, paContinue, paFloat32
-from struct          import Struct
-from comps.visualise import Visualiser
-from comps.constants import *
-from comps.palettes  import PaletteContext
-from visuals.fftspec import FFTSpectrum, PlotDimensions
-from utils           import SDL_IsEventOccured
-from sdl2            import SDL_QUIT
-from comps.comploader import ComponentContext
-from operator        import itemgetter 
+import sdl2
+import pyaudio
+import numpy
 
-# An instance of the component manger for the root program.
-root_components = ComponentContext()
+from operator  import itemgetter
+from argparse  import ArgumentParser
+from functools import partial
+from ctypes    import pointer
+from sys       import getdefaultencoding
 
-class Spectro():
-    config = {}
+# default system encoding to use, this is to encode SDL window's title.
+str_encode = partial(str.encode, encoding= getdefaultencoding())
 
-    def __init__(self, config: dict = None):
-        self.config = config
+# this is to map FFT values of [0..+1] to actual screen coordinates.
+maprange = lambda x, a,b, c,d: \
+    (x - a) * (d - c) / (b - a) + c
 
-        """ Register all the components required to execute. """
-        root_components.register('portaudio', PyAudio())
-        root_components.register('palette_manager', PaletteContext())
-        root_components.register('pcm_byteunpacker', Struct('f'))
-        root_components.register('visualizer', Visualiser(self.__repr__(), 
-            config['viewport']['width'], config['viewport']['height']
-        ))
+class Spectro(ArgumentParser):
+    """
+    Spectro is a program to show spectrum of the audio recieved from a
+    physcially external source outside of the host machine (eg. from a micrphone),
+    its goal is to show which sinewaves roughly reconstruct the original wave
+    and also some use it just for curiosity and enjoyment so enjoy!
+    """
+
+    def __init__(self):
+        ArgumentParser.__init__(self,
+            self.__class__.__name__,
+            description= self.__doc__,
+            allow_abbrev= True)
+
+        self.add_argument('-width',
+            type= int,
+            required= True,
+            help= "width of the visualiser window")
+
+        self.add_argument('-height',
+            type= int,
+            required= True,
+            help= "height of the visualiser window")
+
+        self.add_argument('-bufsize',
+            type= int,
+            default= 1024,
+            help= "buffer size of PCM samples to retrieve per iteration\n"
+                  "the value is samanupatik with the load (less is better)")
+
+        self.add_argument('-samplerate',
+            type= int,
+            default= 44100,
+            help= "samplerate of the audio"
+                  " (over than 44100 is meaningless, see ~xiphmont's blogs"
+                  " \'https://people.xiph.org/~xiphmont/demo/neil-young.html\')")
+
+        self.options = self.parse_args()
     
-    def init(self):
-        palettes   = root_components.access('palette_manager')
-        visualiser = root_components.access('visualizer')
+    def main(self):
+        sdl2.SDL_Init(sdl2.SDL_INIT_VIDEO)
 
-        palettes.parse(open(ConfigFiles['palette']).read())
-        logging.debug("Parsed the colourpalette.")
+        self.vwin = sdl2.SDL_CreateWindow(
+                    str_encode(self.__class__.__name__),
+                    sdl2.SDL_WINDOWPOS_CENTERED,
+                    sdl2.SDL_WINDOWPOS_CENTERED,
+                    self.options.width, self.options.height, 0)
+        vrend = sdl2.SDL_CreateRenderer(self.vwin, -1, 0)
 
-        # The callback function which is called to return data
-        # the paint() method is invoked.
-        visualiser \
-        .set_callback(FFTSpectrum(
-            self.config['audioIO']['bufferSize'],
-            self.config['viewport']['width'],
-            PlotDimensions(
-                self.config['viewport']['width'],
-                self.config['viewport']['height']
-            )
-        ).compute)
+        
+        num_tdbins  = self.options.bufsize
+        num_fftbins = num_tdbins // 2
+        fftbins     = pointer((sdl2.SDL_Point * num_fftbins)())
+        _slicewidth = self.options.width / num_fftbins
 
-        visualiser \
-        .set_palette(
-            *itemgetter('foreground', 'background') \
-            (palettes.getPalette())
-        )
+        def _visualiser(frames, num_frames, *_):
+            sdl2.SDL_SetRenderDrawColor(vrend, 0x20, 0x0f, 0x7f, 0xff)
+            sdl2.SDL_RenderClear(vrend)
 
-        root_components.access('portaudio').open(
-            self.config['audioIO']['sampleRate'],
-            1, paFloat32,
-            input= True,
-            output= True,
-            stream_callback= self._process_audiodata,
-            frames_per_buffer= self.config['audioIO']['bufferSize']
-        ).start_stream()
+            sdl2.SDL_SetRenderDrawColor(vrend, 0x7f, 0xff, 0x40, 0xff)
 
-    def audiodevices(self) -> dict:
-        """
-        Provides an iterator over all the devices that can be accessed by PyAudio API.
-        This adds an abstraction over 'for looping' all the devices are avialable via
-        the Host Audio API.
+            fftdata = (numpy.abs(
+                        numpy.fft.rfft(
+                            memoryview(frames).cast('f') * numpy.hamming(num_tdbins)
+                        )) / num_fftbins)[:num_fftbins]     
+       
+            x, y = 0.0, 0.0
+            for idx, fbin in enumerate(fftdata):
+                # map value as: 1 = top, 0 = bottom.
+                y = maprange(fbin, 0, 1, self.options.height, 0)
+                fftbins.contents[idx] = sdl2.SDL_Point(int(x), int(y))
+                x+= _slicewidth
 
-        :rtype dict:
-            Information about each device's charecteristics.
-        """
-        pa = root_components.access('portaudio')
+            sdl2.SDL_RenderDrawLines(vrend, fftbins.contents, num_fftbins)
+            sdl2.SDL_RenderPresent(vrend)
 
-        for devidx in range(pa.get_device_count()):
-            yield pa.get_device_info_by_index(devidx)
+            return (frames, pyaudio.paContinue)
 
-    def _process_audiodata(
-        self, 
-        frames, nFrames,
-        timeInfo, status
-    ) -> tuple:
-        """
-        This method is a internal method to process, visualise, playback
-        audio recieved from the input.
-        """
-
-        root_components.access('visualizer').paint(map(
-            lambda sample: sample[0],
-            root_components.access('pcm_byteunpacker') \
-                .iter_unpack(frames)
-        ))
-
-        # Return the samples for Playback of audio. With status, ok.
-        #       frames in octets  reponse of callback
-        return (     frames,      paContinue)
-
-    def close(self):
-        raise NotImplementedError("The close function is not implemented yet!")
-
-import comps.configloader as configloader
-import logging
-import sys
-import tkinter
-import gui.objview
-
-gui_main = tkinter.Tk()
-gui_main.title("Configuration Explorer")
-
-""" Configure the logging system. All the logs would be 
-    dumped into the STDOUT. """
-root_logger = logging.getLogger()
-root_logger.setLevel(logging.DEBUG)
-stdout_handler = logging.StreamHandler(sys.stdout)
-root_logger.addHandler(stdout_handler)
-
-def main():
-    # Load the general config from the config file. The documentation is
-    # on the https://github.com/nullvideo/spectro/wiki.
-    main_config = configloader.ConfigContext(configloader.ConfigType.Yaml)
-    main_config.parse(open(ConfigFiles['general']).read())
-
-    main_app = Spectro(main_config.parsed_config); main_app.init()
-    root_logger.info(f"Intialised the application instance {main_app.__repr__()}")
-
-    logging.debug(root_components.access('palette_manager').parsed_config)
-
-    gui.objview.ObjectViewer(gui_main, main_config.parsed_config)
-    gui.objview.ObjectViewer(gui_main, root_components.access('palette_manager').parsed_config)
-
-    pa = root_components.access('portaudio')
-    # Listing of Audio IO devices whose are avialable
-    # via the Host API. Selected devices would be highlighted.
-    (indev_id, outdev_id) = (pa.get_default_input_device_info()['index'],
-                             pa.get_default_output_device_info()['index'])
-
-    root_logger.info("List of Input and Output devices:")
-    for index, device in enumerate(main_app.audiodevices()):
-        if index in (indev_id, outdev_id):
-            root_logger.info(" [%s*] %s" % (index, device['name']))
-        else:
-            root_logger.info(" [%s] %s" % (index, device['name']))
-
-    gui_main.mainloop()
-
+        self.aout = pyaudio.PyAudio().open(
+            rate= self.options.samplerate,
+            channels= 1, format= pyaudio.paFloat32,
+            input= True, output= True,
+            frames_per_buffer= self.options.bufsize,
+            stream_callback= _visualiser)
+        
+        self.aout.start_stream()
 
 if __name__ == "__main__":
-    main()
+    app = Spectro()
+    app.main()
+
+    dispevt = sdl2.SDL_Event()
+    while True:
+        sdl2.SDL_PollEvent(dispevt)
+        if dispevt.type == sdl2.SDL_QUIT:
+            app.aout.stop_stream()
+            sdl2.SDL_DestroyWindow(app.vwin)
+            break
